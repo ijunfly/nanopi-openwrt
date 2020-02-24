@@ -1,6 +1,8 @@
 name: r2s Lean版openwrt
 
 on:
+  release:
+    types: [published]
   push:
     paths:
       - '.github/workflows/r2s_lean.yml'
