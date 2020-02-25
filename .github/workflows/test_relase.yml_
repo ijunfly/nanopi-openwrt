@@ -1,20 +1,10 @@
-name: r2s Lean版openwrt
-
+name: test release
 on:
-  push:
-    branches: 
-      - master
-    paths:
-      - '.github/workflows/r2s_lean.yml'
-  schedule:
-    - cron: '10 09 * * *'
-
+  watch:
+    types: [started]
 jobs:
-
-  build:
-    
+  Ubuntu:
     runs-on: ubuntu-latest
-    
     steps:
       
       - name: Checkout
@@ -28,9 +18,7 @@ jobs:
         run: |
           sudo rm -rf /etc/apt/sources.list.d
           sudo apt-get update
-          sudo apt-get -y install bc build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch unzip zlib1g-dev lib32gcc1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler
-          wget -O - https://raw.githubusercontent.com/friendlyarm/build-env-on-ubuntu-bionic/master/install.sh | bash
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk
+          sudo apt-get -y install bc 
           
       - name: Install Repo
         run: |
@@ -42,11 +30,10 @@ jobs:
           mkdir friendlywrt-rk3328
           cd friendlywrt-rk3328
           repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master -m rk3328.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
-          repo sync -c  --no-clone-bundle
-          curl https://github.com/friendlyarm/friendlywrt_configs/raw/master-v19.07.1/config_rk3328 > configs/config_rk3328
           
       - name: Mods
         run: |
+          exit 0
           cd friendlywrt-rk3328
           . ../remove_unused_config.sh
           sed -i '/iptparser/d' configs/config_rk3328
@@ -93,33 +80,32 @@ jobs:
           sed -i '/8.8.8.8/d' package/base-files/files/root/setup.sh
           echo -e '\nDYC Build\n'  >> package/base-files/files/etc/banner
           
-      - name: Mod luci
+      - name: Clean Feeds
         run: |
-          cd friendlywrt-rk3328/friendlywrt
+          cd friendlywrt-rk3328/
           #./scripts/feeds clean -a
-          ./scripts/feeds update -a && ./scripts/feeds install -a
-          sed -i '/Load Average/i\<tr><td width="33%"><%:CPU Temperature%></td><td><%=luci.sys.exec("cut -c1-2 /sys/class/thermal/thermal_zone0/temp")%></td></tr>' feeds/luci/modules/luci-mod-admin-full/luasrc/view/admin_status/index.htm
-          sed -i 's/pcdata(boardinfo.system or "?")/"ARMv8"/' feeds/luci/modules/luci-mod-admin-full/luasrc/view/admin_status/index.htm
                     
       - name: Build FriendlyWrt
         run: |
           cd friendlywrt-rk3328
-          sed -i 's/set -eu/set -u/' scripts/mk-friendlywrt.sh
-          ./build.sh nanopi_r2s.mk
+          #sed -i 's/set -eu/set -u/' scripts/mk-friendlywrt.sh
+          #./build.sh nanopi_r2s.mk
       
       - name: Zip Files
         run: |
-          gzip friendlywrt-rk3328/out/*.img
+          #gzip friendlywrt-rk3328
       - name: Assemble Artifact
         id: assemble_artifact
         run: |
           rm -rf ./artifact/
           mkdir -p ./artifact/
-          mv friendlywrt-rk3328/out/*img* ./artifact/
-          cp friendlywrt-rk3328/friendlywrt/.config ./artifact/
+          touch ./artifact/tmpf.img
+          touch ./artifact/.config
           zip -r artifact.zip ./artifact/
+
           release_tag="R2S-Lean-$(date +%Y-%m-%d)"
           echo "##[set-output name=release_tag;]$release_tag"
+
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1

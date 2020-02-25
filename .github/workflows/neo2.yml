@@ -2,6 +2,8 @@ name: neo2 Build
 
 on:
   push:
+    branches: 
+      - master
     paths:
       - '.github/workflows/neo2.yml'
 

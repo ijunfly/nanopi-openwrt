@@ -2,6 +2,8 @@ name: original Build
 
 on:
   push:
+    branches: 
+      - master
     paths: 
       - '.github/workflows/master_code_and_master_config.yml'  
 
