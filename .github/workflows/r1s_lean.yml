@@ -5,9 +5,9 @@ on:
     branches: 
       - master
     paths:
-      - '.github/workflows/r1s_lean.yml'
+      - '.github/workflows/r1s_lean.yml_'
   schedule:
-    - cron: '10 10 * * *'
+    - cron: '10 10 */2 * *'
 
 jobs:
 
@@ -41,68 +41,83 @@ jobs:
         run: |
           mkdir friendlywrt-h5
           cd friendlywrt-h5
-          repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master -m h5.xml --repo-url=https://github.com/friendlyarm/repo  --no-clone-bundle
-          repo sync -c  --no-clone-bundle
+          repo init -u https://github.com/friendlyarm/friendlywrt_manifests -b master -m h5.xml --repo-url=https://github.com/friendlyarm/repo --no-clone-bundle
+          repo sync -c --no-clone-bundle -j8
           
       - name: Mods
         run: |
           cd friendlywrt-h5
           . ../remove_unused_config.sh
-          sed -i '/iptparser/d' configs/config_h5
-          echo '
-          CONFIG_OPENSSL_ENGINE_BUILTIN=y
-          CONFIG_OPENSSL_WITH_DTLS=y
-          CONFIG_OPENSSL_WITH_EC2M=y
-          CONFIG_OPENSSL_WITH_NPN=y
-          CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
-          CONFIG_PACKAGE_ipv6helper=y
-          CONFIG_PACKAGE_curl=y
-          CONFIG_PACKAGE_htop=y
-          CONFIG_PACKAGE_lrzsz=y
-          CONFIG_PACKAGE_nano=y
-          CONFIG_PACKAGE_vim-fuller=y
-          CONFIG_PACKAGE_luci-app-cifsd=y
-          CONFIG_PACKAGE_luci-app-dockerman=y
-          CONFIG_PACKAGE_luci-app-ipsec-vpnd=y
-          CONFIG_PACKAGE_luci-app-netdata=y
-          CONFIG_PACKAGE_luci-app-pptp-server=y
-          CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Shadowsocks=y
-          CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_ShadowsocksR_Server=y
-          CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Simple_obfs=y
-          CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_Trojan=y
-          CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_V2ray=y
-          CONFIG_PACKAGE_luci-app-ssr-plus_INCLUDE_V2ray_plugin=y
-          CONFIG_PACKAGE_luci-app-syncdial=y
-          CONFIG_PACKAGE_luci-app-ttyd=y
-          CONFIG_PACKAGE_luci-theme-argon=y
-          CONFIG_PACKAGE_luci-theme-material=y
-          CONFIG_PACKAGE_luci-theme-netgear=y
-          # CONFIG_OPENSSL_ENGINE_BUILTIN_DEVCRYPTO is not set
-          # CONFIG_PACKAGE_kmod-cryptodev is not set
-          # CONFIG_PACKAGE_libopenssl-devcrypto is not set
-          # CONFIG_V2RAY_COMPRESS_UPX is not set' >> configs/config_h5
+          cat ../app_config.seed >> configs/config_h5
+          echo '# CONFIG_V2RAY_COMPRESS_UPX is not set' >> configs/config_h5
+          sed -i '/docker/Id;/containerd/Id;/runc/Id;/iptparser/Id' configs/config_h5 #fix compile error
           cd friendlywrt
           git config --local user.email "action@github.com" && git config --local user.name "GitHub Action"
           git remote add upstream https://github.com/coolsnowwolf/lede && git fetch upstream
           git rebase 90bb1cf9c33e73de5019686b8bd495f689e675a4^ --onto upstream/master -X theirs
           git checkout upstream/master -- feeds.conf.default
-          git apply ../../0001-fix-upx.patch
+          cd package/lean/
+          #git clone https://github.com/jerrykuku/lua-maxminddb.git
+          #git clone https://github.com/jerrykuku/luci-app-vssr.git
+          #cd luci-app-vssr/root/etc/
+          #echo 'china_ssr.txt
+          #config/black.list
+          #config/white.list
+          #dnsmasq.oversea/oversea_list.conf
+          #dnsmasq.ssr/ad.conf
+          #dnsmasq.ssr/gfw_base.conf
+          #dnsmasq.ssr/gfw_list.conf' | xargs rm
+          #cd ../../../
+          rm -rf luci-theme-argon
+          git clone -b 18.06 https://github.com/jerrykuku/luci-theme-argon.git
+          cd ../../
+          sed -i '/exit/i\mv /etc/rc.d/S25dockerd /etc/rc.d/S92dockerd && sed -i "s/START=25/START=92/g" S92dockerd' package/lean/default-settings/files/zzz-default-settings
+          sed -i '/uci commit luci/i\uci set luci.main.mediaurlbase="/luci-static/argon"' package/lean/default-settings/files/zzz-default-settings
           sed -i '/exit/i\chown -R root:root /usr/share/netdata/web' package/lean/default-settings/files/zzz-default-settings
           sed -i 's/option fullcone\t1/option fullcone\t0/' package/network/config/firewall/files/firewall.config
           sed -i '/8.8.8.8/d' package/base-files/files/root/setup.sh
           echo -e '\nDYC Build\n'  >> package/base-files/files/etc/banner
           
-      - name: Clean Feeds
+      - name: Mod luci
         run: |
           cd friendlywrt-h5/friendlywrt
-          ./scripts/feeds clean -a
-                    
+          ./scripts/feeds update -a && ./scripts/feeds install -a
+          sed -i '/Load Average/i\<tr><td width="33%"><%:CPU Temperature%></td><td><%=luci.sys.exec("cut -c1-2 /sys/class/thermal/thermal_zone0/temp")%></td></tr>' feeds/luci/modules/luci-mod-admin-full/luasrc/view/admin_status/index.htm
+          sed -i 's/pcdata(boardinfo.system or "?")/"ARMv8"/' feeds/luci/modules/luci-mod-admin-full/luasrc/view/admin_status/index.htm
+          
       - name: Build FriendlyWrt
         run: |
           cd friendlywrt-h5
-          sed -i 's/set -eu/set -u/' scripts/mk-friendlywrt.sh
+          cp configs/config_h5 friendlywrt/.config
+          cd friendlywrt
+          make defconfig && make download -j8
+          make -s -j$(nproc) || make V=s -j1
+
+      #- name: Patch Kernel
+      #  run: |
+      #    cd friendlywrt-h5
+      #    #cd kernel/ && git apply ../../add_fullconenat.diff && cd ../
+      #    git clone https://github.com/openwrt/openwrt
+      #    cd openwrt/
+      #    git checkout 5387bc9cbb9ed205f08766523a296f21dfa83b56
+      #    rm target/linux/generic/backport-4.14/400-v4.16-leds-trigger-Introduce-a-NETDEV-trigger.patch
+      #    rm target/linux/generic/pending-4.14/403-mtd-hook-mtdsplit-to-Kbuild.patch
+      #    rm target/linux/generic/hack-4.14/700-swconfig_switch_drivers.patch
+      #    ./scripts/patch-kernel.sh ../kernel target/linux/generic/backport-4.14
+      #    ./scripts/patch-kernel.sh ../kernel target/linux/generic/pending-4.14
+      #    ./scripts/patch-kernel.sh ../kernel target/linux/generic/hack-4.14
+      #    cd ../kernel && git checkout -- drivers/mtd/ && cd ../
+      #    find friendlywrt/ -type f -name .config.override -exec cp {} ../ \;
+      #    grep -i 'FILTER_\|FLOW' ../.config.override > .config.override
+      #    wget https://github.com/torvalds/linux/raw/master/scripts/kconfig/merge_config.sh && chmod +x merge_config.sh
+      #    ./merge_config.sh -m .config.override kernel/arch/arm64/configs/sunxi_arm64_defconfig && mv .config kernel/arch/arm64/configs/sunxi_arm64_defconfig
+
+      - name: Build SD img
+        run: |
+          cd friendlywrt-h5
+          sed -i '130,150 {/build_friendlywrt/d}' scripts/build.sh
           ./build.sh nanopi_r1s.mk
-      
+
       - name: Zip Files
         run: |
           gzip friendlywrt-h5/out/*.img
